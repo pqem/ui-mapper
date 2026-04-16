@@ -19,7 +19,7 @@ class GeminiProvider(VLMProvider):
     """
 
     COOLDOWN_SECONDS = 65  # Wait slightly over 1 minute for RPM reset
-    MODEL = "gemini-2.5-flash-lite-preview-06-17"
+    MODEL = "gemini-2.0-flash"
 
     def __init__(self, api_keys: list[str], model: str | None = None):
         self._keys = [k for k in api_keys if k]

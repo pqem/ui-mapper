@@ -39,7 +39,11 @@ $menuCond = New-Object System.Windows.Automation.PropertyCondition(
     [System.Windows.Automation.AutomationElement]::ControlTypeProperty,
     [System.Windows.Automation.ControlType]::Menu
 )
+# Search Children first, then Descendants (some apps nest the menu bar)
 $menuBar = $root.FindFirst([System.Windows.Automation.TreeScope]::Children, $menuCond)
+if (-not $menuBar) {{
+    $menuBar = $root.FindFirst([System.Windows.Automation.TreeScope]::Descendants, $menuCond)
+}}
 
 $result = @{{ "menus" = @{{}}; "window_title" = $proc.MainWindowTitle }}
 
