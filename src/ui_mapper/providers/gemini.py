@@ -1,10 +1,8 @@
 """Gemini API provider with multi-key rotation."""
 
 from __future__ import annotations
-import io
 import time
 import logging
-from typing import Any
 
 from .base import VLMProvider
 
@@ -16,9 +14,10 @@ class GeminiProvider(VLMProvider):
 
     Supports up to N API keys. When one hits a 429 (rate limit),
     it's marked with a cooldown and the next key is tried.
+    Supports both google-genai (new) and google-generativeai (legacy).
     """
 
-    COOLDOWN_SECONDS = 65  # Wait slightly over 1 minute for RPM reset
+    COOLDOWN_SECONDS = 65
     MODEL = "gemini-2.0-flash"
 
     def __init__(self, api_keys: list[str], model: str | None = None):
@@ -26,22 +25,37 @@ class GeminiProvider(VLMProvider):
         self._key_cooldowns: dict[int, float] = {}
         self._current_idx = 0
         self._model_name = model or self.MODEL
-        self._clients: dict[int, Any] = {}
-        self._genai = None
+        self._api_module = None
+        self._api_type = ""  # "new" or "legacy"
 
         if self._keys:
-            try:
-                import google.generativeai as genai
-                self._genai = genai
-            except ImportError:
-                log.warning("google-generativeai not installed. Run: pip install ui-mapper[gemini]")
+            self._load_api_module()
 
-    def _get_client(self, key_idx: int) -> Any:
-        """Get or create a Gemini client for the given key index."""
-        if key_idx not in self._clients:
-            self._genai.configure(api_key=self._keys[key_idx])
-            self._clients[key_idx] = self._genai.GenerativeModel(self._model_name)
-        return self._clients[key_idx]
+    def _load_api_module(self) -> None:
+        """Try new google-genai first, fall back to legacy google-generativeai."""
+        try:
+            from google import genai
+            self._api_module = genai
+            self._api_type = "new"
+            log.debug("Using google-genai (new API)")
+            return
+        except ImportError:
+            pass
+
+        try:
+            import google.generativeai as genai
+            self._api_module = genai
+            self._api_type = "legacy"
+            log.debug("Using google-generativeai (legacy API)")
+            return
+        except ImportError:
+            pass
+
+        log.warning(
+            "No Gemini package found. Install one:\n"
+            "  pip install google-genai          (recommended)\n"
+            "  pip install google-generativeai    (legacy)"
+        )
 
     def _pick_key(self) -> int | None:
         """Find an available key (not in cooldown)."""
@@ -54,7 +68,7 @@ class GeminiProvider(VLMProvider):
             self._current_idx += 1
         return None
 
-    def _call(self, content: list[Any]) -> str:
+    def _call(self, prompt: str, image_bytes: bytes | None = None) -> str:
         """Execute a Gemini API call with key rotation."""
         last_error = None
         for _attempt in range(len(self._keys)):
@@ -63,11 +77,10 @@ class GeminiProvider(VLMProvider):
                 break
 
             try:
-                # Re-configure for this key
-                self._genai.configure(api_key=self._keys[idx])
-                model = self._genai.GenerativeModel(self._model_name)
-                response = model.generate_content(content)
-                return response.text
+                if self._api_type == "new":
+                    return self._call_new_api(idx, prompt, image_bytes)
+                else:
+                    return self._call_legacy_api(idx, prompt, image_bytes)
             except Exception as e:
                 err_str = str(e).lower()
                 if "429" in err_str or "quota" in err_str or "rate" in err_str:
@@ -79,19 +92,50 @@ class GeminiProvider(VLMProvider):
                     raise
 
         raise RuntimeError(
-            f"All {len(self._keys)} Gemini keys exhausted. "
-            f"Last error: {last_error}"
+            f"All {len(self._keys)} Gemini keys exhausted. Last error: {last_error}"
         )
 
+    def _call_new_api(self, key_idx: int, prompt: str, image_bytes: bytes | None) -> str:
+        """Call using google-genai (new package)."""
+        from google import genai
+        from google.genai import types
+
+        client = genai.Client(api_key=self._keys[key_idx])
+
+        contents = []
+        if image_bytes:
+            contents.append(types.Part.from_bytes(data=image_bytes, mime_type="image/png"))
+        contents.append(prompt)
+
+        response = client.models.generate_content(
+            model=self._model_name,
+            contents=contents,
+        )
+        return response.text
+
+    def _call_legacy_api(self, key_idx: int, prompt: str, image_bytes: bytes | None) -> str:
+        """Call using google-generativeai (legacy package)."""
+        import google.generativeai as genai
+
+        genai.configure(api_key=self._keys[key_idx])
+        model = genai.GenerativeModel(self._model_name)
+
+        content = []
+        if image_bytes:
+            content.append({"mime_type": "image/png", "data": image_bytes})
+        content.append(prompt)
+
+        response = model.generate_content(content)
+        return response.text
+
     def query_text(self, prompt: str) -> str:
-        return self._call([prompt])
+        return self._call(prompt)
 
     def query_vision(self, prompt: str, image: bytes) -> str:
-        img_part = {"mime_type": "image/png", "data": image}
-        return self._call([prompt, img_part])
+        return self._call(prompt, image)
 
     def is_available(self) -> bool:
-        if not self._keys or not self._genai:
+        if not self._keys or not self._api_module:
             return False
         return self._pick_key() is not None
 
@@ -101,7 +145,7 @@ class GeminiProvider(VLMProvider):
                        if now >= self._key_cooldowns.get(i, 0))
         if available == 0:
             return 0
-        return available * 50  # Rough estimate per key
+        return available * 50
 
     def provider_name(self) -> str:
-        return f"Gemini ({len(self._keys)} keys)"
+        return f"Gemini ({len(self._keys)} keys, {self._api_type or 'not loaded'})"

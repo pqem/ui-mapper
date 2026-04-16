@@ -2,7 +2,7 @@
 
 Uses PowerShell and the .NET UIAutomation API to enumerate menus, buttons,
 dialogs, and their properties. This gives high-confidence data for standard
-Windows controls, but misses custom-rendered elements (common in Affinity, etc.).
+Windows controls, but misses custom-rendered elements.
 """
 
 from __future__ import annotations
@@ -19,7 +19,11 @@ from ..providers.base import VLMProvider
 
 log = logging.getLogger(__name__)
 
-MENU_WALK_PS = r'''
+
+def _build_menu_walk_script(process_name: str) -> str:
+    """Build PowerShell script for walking UIA menu tree."""
+    # Using here-string style to avoid Python/PowerShell brace conflicts
+    return f'''
 Add-Type -AssemblyName UIAutomationClient
 Add-Type -AssemblyName UIAutomationTypes
 
@@ -28,24 +32,25 @@ $proc = Get-Process -Name $processName -ErrorAction SilentlyContinue |
     Where-Object {{ $_.MainWindowHandle -ne 0 }} | Select-Object -First 1
 
 if (-not $proc) {{
-    Write-Output '{{"error": "Process not found: {process_name}"}}'
+    Write-Output ('{{"error":"Process not found"}}')
     exit
 }}
 
 $root = [System.Windows.Automation.AutomationElement]::FromHandle($proc.MainWindowHandle)
 
-# Find the menu bar
 $menuCond = New-Object System.Windows.Automation.PropertyCondition(
     [System.Windows.Automation.AutomationElement]::ControlTypeProperty,
     [System.Windows.Automation.ControlType]::Menu
 )
-# Search Children first, then Descendants (some apps nest the menu bar)
+
+# Search Children first, then Descendants
 $menuBar = $root.FindFirst([System.Windows.Automation.TreeScope]::Children, $menuCond)
 if (-not $menuBar) {{
     $menuBar = $root.FindFirst([System.Windows.Automation.TreeScope]::Descendants, $menuCond)
 }}
 
-$result = @{{ "menus" = @{{}}; "window_title" = $proc.MainWindowTitle }}
+$menus = @{{}}
+$windowTitle = $proc.MainWindowTitle
 
 if ($menuBar) {{
     $menuItems = $menuBar.FindAll(
@@ -59,15 +64,13 @@ if ($menuBar) {{
 
         $items = @()
 
-        # Try to expand the menu
         try {{
             $expandPattern = $menuItem.GetCurrentPattern(
                 [System.Windows.Automation.ExpandCollapsePattern]::Pattern
             )
             $expandPattern.Expand()
-            Start-Sleep -Milliseconds 400
+            Start-Sleep -Milliseconds 500
 
-            # Get child items
             $childCond = New-Object System.Windows.Automation.PropertyCondition(
                 [System.Windows.Automation.AutomationElement]::ControlTypeProperty,
                 [System.Windows.Automation.ControlType]::MenuItem
@@ -80,11 +83,9 @@ if ($menuBar) {{
                 $childName = $child.Current.Name
                 if (-not $childName) {{ continue }}
 
-                # Check for keyboard shortcut in AccessKey or AcceleratorKey
                 $shortcut = $child.Current.AcceleratorKey
                 if (-not $shortcut) {{ $shortcut = "" }}
 
-                # Check if it has children (submenu)
                 $hasChildren = $false
                 $patterns = $child.GetSupportedPatterns()
                 foreach ($p in $patterns) {{
@@ -95,28 +96,31 @@ if ($menuBar) {{
                 }}
 
                 $items += @{{
-                    "name" = $childName
-                    "shortcut" = $shortcut
-                    "has_submenu" = $hasChildren
-                    "automation_id" = $child.Current.AutomationId
+                    name = $childName
+                    shortcut = $shortcut
+                    has_submenu = $hasChildren
+                    automation_id = $child.Current.AutomationId
                 }}
             }}
 
-            # Collapse the menu
             $expandPattern.Collapse()
-            Start-Sleep -Milliseconds 200
+            Start-Sleep -Milliseconds 300
         }} catch {{
             # Menu might not support ExpandCollapse
         }}
 
-        $result["menus"][$menuName] = @{{
-            "items" = $items
-            "access_key" = $menuItem.Current.AccessKey
+        $menus[$menuName] = @{{
+            items = $items
+            access_key = $menuItem.Current.AccessKey
         }}
     }}
 }}
 
-# Output as JSON
+$result = @{{
+    menus = $menus
+    window_title = $windowTitle
+}}
+
 $result | ConvertTo-Json -Depth 5 -Compress
 '''
 
@@ -128,7 +132,7 @@ class UIAMapper(BaseMapper):
         return app_config.platform == "windows" and bool(app_config.process_name)
 
     def get_priority(self) -> int:
-        return 30  # After LLM knowledge and config parsing
+        return 30
 
     def get_name(self) -> str:
         return "uia"
@@ -150,7 +154,6 @@ class UIAMapper(BaseMapper):
             sources=["uia"],
         )
 
-        # Walk menu bar
         menu_data = self._walk_menus(app_config.process_name)
         if menu_data:
             for menu_name, menu_info in menu_data.get("menus", {}).items():
@@ -172,7 +175,6 @@ class UIAMapper(BaseMapper):
                         shortcut=item_info.get("shortcut", ""),
                         access_methods=access,
                     ))
-                    # Extract shortcuts for the shortcuts list
                     if item_info.get("shortcut"):
                         ui_map.shortcuts.append(Shortcut(
                             keys=item_info["shortcut"],
@@ -200,22 +202,27 @@ class UIAMapper(BaseMapper):
 
     def _walk_menus(self, process_name: str) -> dict | None:
         """Execute PowerShell to walk the UIA menu tree."""
-        script = MENU_WALK_PS.format(process_name=process_name)
+        script = _build_menu_walk_script(process_name)
         try:
             result = subprocess.run(
                 ["powershell", "-NoProfile", "-Command", "-"],
-                input=script, capture_output=True, text=True, timeout=30,
+                input=script, capture_output=True, text=True, timeout=60,
             )
             if result.returncode != 0:
-                log.warning(f"UIA menu walk failed: {result.stderr[:200]}")
+                log.warning(f"UIA menu walk failed: {result.stderr[:300]}")
                 return None
 
-            return json.loads(result.stdout.strip())
+            output = result.stdout.strip()
+            if not output:
+                log.warning("UIA menu walk returned empty output")
+                return None
+
+            return json.loads(output)
         except json.JSONDecodeError as e:
             log.warning(f"Failed to parse UIA output: {e}")
             return None
         except subprocess.TimeoutExpired:
-            log.warning("UIA menu walk timed out")
+            log.warning("UIA menu walk timed out (60s)")
             return None
         except Exception as e:
             log.warning(f"UIA menu walk error: {e}")
