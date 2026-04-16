@@ -1,0 +1,36 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.backends._legacy:_Backend"
+
+[project]
+name = "ui-mapper"
+version = "0.1.0"
+description = "Automatic UI mapper for desktop applications — enables LLMs to control any program"
+readme = "README.md"
+requires-python = ">=3.10"
+license = {text = "MIT"}
+
+dependencies = [
+    "click>=8.0",
+    "pyyaml>=6.0",
+    "pydantic>=2.0",
+]
+
+[project.optional-dependencies]
+gemini = ["google-generativeai>=0.8"]
+ollama = ["ollama>=0.4"]
+visual = ["pyautogui>=0.9", "Pillow>=10.0"]
+rag = ["chromadb>=0.5"]
+all = [
+    "google-generativeai>=0.8",
+    "ollama>=0.4",
+    "pyautogui>=0.9",
+    "Pillow>=10.0",
+    "chromadb>=0.5",
+]
+
+[project.scripts]
+ui-mapper = "ui_mapper.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]

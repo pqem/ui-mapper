@@ -1,0 +1,32 @@
+# AutoCAD / ZWCAD mapping configuration
+
+display_name: "AutoCAD"
+process_name: "acad"
+locale: "es"
+platform: "windows"
+
+# AutoCAD has rich config files
+config_files:
+  # PGP file contains all command aliases/shortcuts
+  - "%APPDATA%/Autodesk/AutoCAD */R*/enu/acad.pgp"
+  - "%APPDATA%/Autodesk/AutoCAD */R*/esp/acad.pgp"
+  # CUI/CUIX files define menus and toolbars
+  - "%APPDATA%/Autodesk/AutoCAD */R*/enu/acad.cuix"
+  # ZWCAD equivalent
+  - "%APPDATA%/ZWSOFT/ZWCAD */Support/acad.pgp"
+
+source_repo: ""
+docs_url: "https://help.autodesk.com/view/ACD/2025/ENU/"
+
+# Visual mapper settings
+visual_enabled: true
+screenshot_delay_ms: 300
+exploration_depth: "standard"
+
+metadata:
+  version: "2025"
+  publisher: "Autodesk"
+  category: "cad"
+  has_command_line: true
+  scripting: ["LISP", "VBA", ".NET", "Python"]
+  notes: "Has command line interface — many actions available via text commands"

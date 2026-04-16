@@ -1,0 +1,12 @@
+# ui-mapper default configuration
+# API keys are loaded from environment variables (see .env.example)
+
+log_level: INFO
+checkpoint_interval_sec: 300  # Save checkpoint every 5 minutes
+
+providers:
+  preferred_order:
+    - gemini    # Try Gemini API first (free tier)
+    - ollama    # Fall back to local Ollama
+  ollama_host: "http://localhost:11434"
+  ollama_model: auto  # Auto-detect best model by VRAM

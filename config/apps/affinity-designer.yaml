@@ -1,0 +1,22 @@
+# Affinity Designer mapping configuration
+
+display_name: "Affinity Designer"
+process_name: "Affinity"
+locale: "es"
+platform: "windows"
+
+# No config files or source code available (closed source)
+config_files: []
+source_repo: ""
+docs_url: "https://affinity.serif.com/en-us/learn/"
+
+# Visual mapper settings
+visual_enabled: true
+screenshot_delay_ms: 500
+exploration_depth: "full"
+
+metadata:
+  version: "3.2"
+  publisher: "Canva/Serif"
+  category: "graphic_design"
+  notes: "Custom UI controls, many elements invisible to UIA"
