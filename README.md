@@ -84,7 +84,14 @@ This detects your hardware (GPU, RAM), checks available providers, and shows con
 
 ### 2. Map an application
 
-**Before mapping:** Open the target application with a document/file loaded. The mapper needs the app to be visible on screen.
+> **IMPORTANT: Before running the mapper, you MUST:**
+> 1. Open the target application (e.g. Affinity Designer, AutoCAD)
+> 2. Have a document/file open inside the application (not just the start screen)
+> 3. Make sure the application window is visible on screen (not minimized)
+> 4. Close any open dialogs inside the application — start from the normal editing view
+>
+> The mapper interacts with the application by taking screenshots and clicking menus.
+> If the app is not open or not visible, the mapper will not find anything.
 
 ```bash
 # Map Affinity Designer (visual exploration)
