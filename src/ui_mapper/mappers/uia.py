@@ -10,12 +10,17 @@ import subprocess
 import json
 import logging
 from datetime import timedelta
+from pathlib import Path
+from typing import TYPE_CHECKING
 
 from .base import BaseMapper
 from ..core.types import UIMap, Menu, MenuItem, Shortcut, AccessMethod, AccessMethodType
 from ..core.config import AppConfig
 from ..core.session import SessionState
 from ..providers.base import VLMProvider
+
+if TYPE_CHECKING:
+    from ..core.watchdog import HardwareWatchdog
 
 log = logging.getLogger(__name__)
 
@@ -145,7 +150,10 @@ class UIAMapper(BaseMapper):
         app_config: AppConfig,
         session: SessionState,
         provider: VLMProvider | None = None,
+        watchdog: "HardwareWatchdog | None" = None,
+        sessions_root: Path | None = None,
     ) -> UIMap:
+        _ = watchdog, sessions_root  # accepted for interface parity
         log.info(f"Walking UIA tree for {app_config.process_name}...")
 
         ui_map = UIMap(
