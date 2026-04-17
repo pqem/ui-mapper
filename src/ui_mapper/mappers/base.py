@@ -3,11 +3,16 @@
 from __future__ import annotations
 from abc import ABC, abstractmethod
 from datetime import timedelta
+from pathlib import Path
+from typing import TYPE_CHECKING
 
 from ..core.types import UIMap
 from ..core.config import AppConfig
 from ..core.session import SessionState
 from ..providers.base import VLMProvider
+
+if TYPE_CHECKING:
+    from ..core.watchdog import HardwareWatchdog
 
 
 class BaseMapper(ABC):
@@ -27,8 +32,19 @@ class BaseMapper(ABC):
         app_config: AppConfig,
         session: SessionState,
         provider: VLMProvider | None = None,
+        watchdog: "HardwareWatchdog | None" = None,
+        sessions_root: Path | None = None,
     ) -> UIMap:
-        """Execute mapping and return discovered UI elements."""
+        """Execute mapping and return discovered UI elements.
+
+        Optional parameters (added in Phase 3a):
+        - ``watchdog``: when provided, long-running mappers should call
+          ``watchdog.report_progress()`` on each completed unit of work
+          and honor ``should_pause`` / ``should_abort`` between units.
+        - ``sessions_root``: directory where mappers may persist debug
+          artifacts (screenshots, VLM exchanges). When ``None``, no
+          artifacts are written.
+        """
 
     @abstractmethod
     def get_priority(self) -> int:

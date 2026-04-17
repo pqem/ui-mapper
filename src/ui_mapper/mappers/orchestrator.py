@@ -164,6 +164,8 @@ class MapperOrchestrator:
                         app_config=app_config,
                         session=session,
                         provider=self.provider if self.provider.is_available() else None,
+                        watchdog=watchdog,
+                        sessions_root=Path(self.config.maps_dir).parent / "sessions",
                     )
                     combined.merge(result)
                     session.completed_mappers.append(name)
