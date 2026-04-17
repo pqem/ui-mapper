@@ -22,6 +22,7 @@ ollama = ["ollama>=0.4"]
 visual = ["pyautogui>=0.9", "Pillow>=10.0"]
 tui = ["rich>=13.0", "textual>=0.60", "questionary>=2.0"]
 hardware = ["pynvml>=11.5", "psutil>=5.9"]
+mcp = ["mcp>=1.0", "pyautogui>=0.9"]
 all = [
     "google-genai>=1.0",
     "ollama>=0.4",
@@ -32,6 +33,7 @@ all = [
     "questionary>=2.0",
     "pynvml>=11.5",
     "psutil>=5.9",
+    "mcp>=1.0",
 ]
 
 [project.scripts]

@@ -148,5 +148,42 @@ def export(app_name: str) -> None:
         click.echo(f.read())
 
 
+@main.command()
+@click.argument("app_name")
+@click.option(
+    "--dry-run", is_flag=True,
+    help="Log intended actions instead of pressing keys / clicking",
+)
+def serve(app_name: str, dry_run: bool) -> None:
+    """Expose a mapped app over MCP (stdio) so an LLM client can control it.
+
+    Example:
+      ui-mapper serve affinity-designer
+
+    Add this to your MCP client (Claude Code, Cursor...) — see
+    docs/MCP_INTEGRATION.md.
+    """
+    _setup_logging("INFO")
+    map_path = Path(MAPS_DIR) / app_name / "map.json"
+    if not map_path.exists():
+        click.echo(
+            f"No map found for {app_name}. Run: ui-mapper map {app_name}",
+            err=True,
+        )
+        sys.exit(1)
+
+    try:
+        from .mcp_server.server import run_stdio
+    except ImportError as e:
+        click.echo(f"mcp_server unavailable: {e}", err=True)
+        sys.exit(1)
+
+    try:
+        run_stdio(map_path, dry_run=dry_run)
+    except RuntimeError as e:
+        click.echo(f"Error: {e}", err=True)
+        sys.exit(1)
+
+
 if __name__ == "__main__":
     main()

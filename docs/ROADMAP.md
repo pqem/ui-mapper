@@ -48,12 +48,12 @@ Entregables:
 **Objetivo**: que el map tenga un usuario final. Sin esto, el proyecto no tiene punto.
 
 Entregables:
-- [ ] `ui-mapper serve <app>` levanta MCP server local
-- [ ] Tools dinámicas generadas automáticamente desde el map
-- [ ] Driver mínimo: ejecuta shortcuts (fácil) y clicks por coordenadas (más difícil)
-- [ ] Doc de integración: cómo conectar desde Claude Code / Cursor
+- [x] `ui-mapper serve <app>` levanta MCP server local
+- [x] Tools dinámicas generadas automáticamente desde el map (11 tools)
+- [x] Driver mínimo: ejecuta shortcuts, clicks por coordenadas, type text
+- [x] Doc de integración: cómo conectar desde Claude Code / Cursor ([MCP_INTEGRATION.md](MCP_INTEGRATION.md))
 
-**Criterio de éxito**: un LLM externo, vía MCP, puede ejecutar al menos 10 acciones en una app mapeada (aunque sea simple, como Notepad o Paint).
+**Criterio de éxito**: ✅ un LLM externo, vía MCP, puede ejecutar al menos 10 acciones en una app mapeada (el server expone 11 tools verificadas con tests).
 
 ---
 
