@@ -20,13 +20,18 @@ dependencies = [
 gemini = ["google-genai>=1.0"]
 ollama = ["ollama>=0.4"]
 visual = ["pyautogui>=0.9", "Pillow>=10.0"]
-rag = ["chromadb>=0.5"]
+tui = ["rich>=13.0", "textual>=0.60", "questionary>=2.0"]
+hardware = ["pynvml>=11.5", "psutil>=5.9"]
 all = [
     "google-genai>=1.0",
     "ollama>=0.4",
     "pyautogui>=0.9",
     "Pillow>=10.0",
-    "chromadb>=0.5",
+    "rich>=13.0",
+    "textual>=0.60",
+    "questionary>=2.0",
+    "pynvml>=11.5",
+    "psutil>=5.9",
 ]
 
 [project.scripts]
