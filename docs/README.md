@@ -4,6 +4,7 @@
 
 - **[ARCHITECTURE.md](ARCHITECTURE.md)** — visión, principios, capas, componentes y contratos. Leer primero.
 - **[ROADMAP.md](ROADMAP.md)** — fases con criterios de éxito medibles. Qué se hace, en qué orden, y cuándo parar.
+- **[MCP_INTEGRATION.md](MCP_INTEGRATION.md)** — cómo conectar un LLM (Claude Code, Cursor) al server MCP para controlar apps mapeadas.
 
 ## Decisiones arquitectónicas (ADRs)
 
