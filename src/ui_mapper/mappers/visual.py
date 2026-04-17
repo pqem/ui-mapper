@@ -32,6 +32,12 @@ from ..core.session import SessionState
 from ..providers.base import VLMProvider
 from ..visual.focus import focus_window
 from ..visual.snapshots import SnapshotWriter, snapshot_dir_for
+from ..visual.verification import verify_menu_open
+from ..visual.coordinates import (
+    BoxesResult,
+    query_menu_bar_boxes,
+    scale_box_to_screen,
+)
 
 if TYPE_CHECKING:
     from ..core.watchdog import HardwareWatchdog
@@ -112,6 +118,16 @@ def _press_key(key: str) -> None:
     pyautogui.press(key)
 
 
+def _click_xy(x: int, y: int) -> None:
+    import pyautogui
+    pyautogui.click(x=x, y=y)
+
+
+def _screen_size() -> tuple[int, int]:
+    import pyautogui
+    return pyautogui.size()
+
+
 def _parse_json_response(text: str) -> Any:
     """Parse JSON from a VLM response, stripping markdown fences."""
     text = text.strip()
@@ -142,6 +158,12 @@ def _visual_provenance(method: str, confidence: float) -> Provenance:
 
 class VisualMapper(BaseMapper):
     """Explores an application's UI visually using screenshots + VLM."""
+
+    def __init__(self) -> None:
+        # Cached menu bar bounding boxes (queried once per session, used
+        # as a coordinate fallback when keyboard navigation fails).
+        self._menu_boxes: BoxesResult | None = None
+        self._menu_boxes_queried: bool = False
 
     def can_map(self, app_config: AppConfig) -> bool:
         if not app_config.visual_enabled:
@@ -187,6 +209,10 @@ class VisualMapper(BaseMapper):
         delay = app_config.screenshot_delay_ms / 1000.0
         sid = _session_id(session)
         snap = _build_snapshot_writer(sessions_root, app_config.name, sid)
+
+        # Reset per-session caches so a new run re-queries the menu bar
+        self._menu_boxes = None
+        self._menu_boxes_queried = False
 
         ui_map = UIMap(
             app_name=app_config.name,
@@ -321,20 +347,23 @@ class VisualMapper(BaseMapper):
         log.info("  exploring menu: %s", menu_name)
         menu_idx = all_menus.index(menu_name) if menu_name in all_menus else 0
 
-        focus_window(app_config.process_name)
-        time.sleep(delay)
-        _press_key("alt")
-        time.sleep(delay)
-        for _ in range(menu_idx):
-            _press_key("right")
-            time.sleep(0.2)
-        _press_key("enter")
-        time.sleep(delay * 2)
+        image, strategy = self._open_menu_with_fallback(
+            app_config, provider, menu_name, menu_idx, delay, snap,
+        )
+        if image is None:
+            log.warning("  could not open menu %s (both strategies failed)", menu_name)
+            return None
 
-        image = _take_screenshot()
+        # Menu is (probably) open — close it after reading
         _press_key("escape")
         _press_key("escape")
         time.sleep(delay)
+
+        # Confidence penalty when the menu had to be opened via coordinate
+        # click fallback — the map entry is still useful, but the initial
+        # open was less reliable than standard keyboard accelerators.
+        strategy_factor = 1.0 if strategy == "keyboard" else 0.85
+        method_tag = f"vlm-menu-items[{strategy}]"
 
         response = ""
         try:
@@ -365,8 +394,8 @@ class VisualMapper(BaseMapper):
                         value=f"{menu_name} > {name}",
                     )],
                     provenance=_visual_provenance(
-                        method="vlm-menu-items",
-                        confidence=0.75 if shortcut else 0.6,
+                        method=method_tag,
+                        confidence=(0.75 if shortcut else 0.6) * strategy_factor,
                     ),
                 )
 
@@ -383,11 +412,14 @@ class VisualMapper(BaseMapper):
 
                 items.append(menu_item)
 
-            log.info("  %s: %d items", menu_name, len(items))
+            log.info("  %s: %d items (via %s)", menu_name, len(items), strategy)
             return Menu(
                 name=menu_name,
                 items=items,
-                provenance=_visual_provenance(method="vlm-menu", confidence=0.75),
+                provenance=_visual_provenance(
+                    method=f"vlm-menu[{strategy}]",
+                    confidence=0.75 * strategy_factor,
+                ),
             )
         except Exception as e:
             log.warning("  failed to parse menu %s: %s", menu_name, e)
@@ -398,6 +430,119 @@ class VisualMapper(BaseMapper):
                 response=response or f"ERROR: {e}",
             )
             return None
+
+    # -- open strategies ------------------------------------------------
+
+    def _open_menu_with_fallback(
+        self,
+        app_config: AppConfig,
+        provider: VLMProvider,
+        menu_name: str,
+        menu_idx: int,
+        delay: float,
+        snap: SnapshotWriter,
+    ) -> tuple[bytes | None, str]:
+        """Try to open a top-level menu. Returns (screenshot_bytes, strategy).
+
+        Strategy is "keyboard", "coordinate" or "" when both failed.
+        The returned screenshot is taken while the menu is still open so
+        callers can extract items from it.
+        """
+        focus_window(app_config.process_name)
+        time.sleep(delay)
+
+        # --- Strategy 1: standard keyboard navigation ---
+        _press_key("alt")
+        time.sleep(delay)
+        for _ in range(menu_idx):
+            _press_key("right")
+            time.sleep(0.2)
+        _press_key("enter")
+        time.sleep(delay * 2)
+
+        image = _take_screenshot()
+        check = verify_menu_open(provider, image, expected_name=menu_name)
+        snap.save_step(
+            f"verify_menu_{menu_name}_keyboard",
+            image_bytes=image,
+            prompt="<verify_menu_open>",
+            response=f"is_open={check.is_open} name={check.menu_name!r} conf={check.confidence:.2f}",
+        )
+        if check.is_open and check.confidence >= 0.5:
+            return image, "keyboard"
+
+        # Close anything that might be half-open before the next attempt
+        _press_key("escape")
+        _press_key("escape")
+        time.sleep(delay)
+
+        # --- Strategy 2: coordinate click fallback ---
+        boxes = self._ensure_menu_boxes(app_config, provider, delay, snap)
+        if boxes is None or not boxes.items:
+            log.info("  coord fallback skipped: no menu boxes available")
+            return None, ""
+
+        box = boxes.find(menu_name)
+        if box is None:
+            log.info("  coord fallback skipped: menu %s not in boxes", menu_name)
+            return None, ""
+
+        # Rescale if the VLM reported different dimensions than our screen
+        screen_w, screen_h = _screen_size()
+        scaled = scale_box_to_screen(
+            box,
+            reported_width=boxes.image_width,
+            reported_height=boxes.image_height,
+            actual_width=screen_w,
+            actual_height=screen_h,
+        )
+        cx, cy = scaled.center
+        log.info("  coord fallback: clicking %s at (%d, %d)", menu_name, cx, cy)
+        focus_window(app_config.process_name)
+        time.sleep(delay)
+        _click_xy(cx, cy)
+        time.sleep(delay * 2)
+
+        image = _take_screenshot()
+        check = verify_menu_open(provider, image, expected_name=menu_name)
+        snap.save_step(
+            f"verify_menu_{menu_name}_coord",
+            image_bytes=image,
+            prompt=f"<verify_menu_open> click=({cx},{cy})",
+            response=f"is_open={check.is_open} name={check.menu_name!r} conf={check.confidence:.2f}",
+        )
+        if check.is_open and check.confidence >= 0.5:
+            return image, "coordinate"
+
+        _press_key("escape")
+        _press_key("escape")
+        time.sleep(delay)
+        return None, ""
+
+    def _ensure_menu_boxes(
+        self,
+        app_config: AppConfig,
+        provider: VLMProvider,
+        delay: float,
+        snap: SnapshotWriter,
+    ) -> BoxesResult | None:
+        """Lazily fetch + cache menu bar bounding boxes for this session."""
+        if self._menu_boxes_queried:
+            return self._menu_boxes
+
+        focus_window(app_config.process_name)
+        time.sleep(delay)
+        image = _take_screenshot()
+        boxes = query_menu_bar_boxes(provider, image)
+        snap.save_step(
+            "menu_bar_boxes",
+            image_bytes=image,
+            prompt="<query_menu_bar_boxes>",
+            response=f"{len(boxes.items)} boxes (reported_size={boxes.image_width}x{boxes.image_height})",
+        )
+        self._menu_boxes = boxes if boxes.items else None
+        self._menu_boxes_queried = True
+        return self._menu_boxes
 
     def _explore_submenu(
         self,
